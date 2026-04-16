@@ -12,7 +12,7 @@ import os
 # CONFIG & Models
 # =========================
 region = "eu-north-1"
-api_key = "ABSKQmVkcm9ja0FQSUtleS1nZ3BwLWF0LTUzNTMzNzYxOTIzODp2eHZ1ZXRDQ09UU0x5dEN3MUs4bnh0anIyRi9UT3krU3JLZWZ6TDhQWlBWbUNZOXFpdS9YeFUycm41QT0="
+api_key = ""
 
 models = {
     "qwen.qwen3-coder-30b-a3b-v1:0": "Qwen 3 Coder 30B",
