@@ -15,9 +15,9 @@ region = "eu-north-1"
 api_key = ""
 
 models = {
-    "qwen.qwen3-coder-30b-a3b-v1:0": "Qwen 3 Coder 30B",
-    "qwen.qwen3-235b-a22b-2507-v1:0": "Qwen 3 235B",
-    "qwen.qwen3-coder-480b-a35b-v1:0": "Qwen 3 Coder 480B"
+    "qwen.qwen3-coder-30b-a3b-v1:0": "Qwen-3-Coder-30B",
+    "qwen.qwen3-235b-a22b-2507-v1:0": "Qwen-3-235B",
+    "qwen.qwen3-coder-480b-a35b-v1:0": "Qwen-3-Coder-480B"
 }
 
 # =========================
@@ -27,31 +27,27 @@ models = {
 def execute_sql(db_id, query):
     db_path = f"./databases/{db_id}/{db_id}.sqlite"
 
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
 
-        cursor.execute(query)
-        rows = cursor.fetchall()
+    cursor.execute(query)
+    rows = cursor.fetchall()
 
-        conn.close()
+    conn.close()
+    return rows
 
-        return rows
-
-    except Exception as e:
-        return f"ERROR: {str(e)}"
-
-def call_model(messages, max_tokens=512):
+def call_model(messages, model, max_tokens=512):
     """
     OpenAI-style wrapper for Bedrock (Claude-style models).
     """
     client = OpenAI(
         api_key=api_key,
         base_url=f"https://bedrock-runtime.{region}.amazonaws.com/openai/v1",
+        timeout=300
     )
 
     response = client.chat.completions.create(
-        model="qwen.qwen3-235b-a22b-2507-v1:0",
+        model=model,
         messages=messages,
         max_tokens=max_tokens,
         temperature=0.0,
@@ -104,7 +100,7 @@ Database Schema:
 
 def clean_sql(response_text):
     # Remove ```sql ... ``` or ``` ... ```
-    cleaned = re.sub(r"```sql|```", "", response_text, flags=re.IGNORECASE)
+    cleaned = re.sub(r"```sql|```|```sqlite", "", response_text, flags=re.IGNORECASE)
     return cleaned.strip()
 
 # =========================
@@ -156,9 +152,22 @@ def compare_numbers(a, b, tol=1e-6):
 def compare_lists(a, b):
     """ Compare lists """
     if len(a) != len(b):
-        return False
+        return False, f"list comparison: {a}, {b}"
 
-    return a == b
+    for a_element, b_element in zip(a, b):
+        if isinstance(a_element, (int, float)) or isinstance(b_element, (int, float)):
+            if not compare_numbers(a_element, b_element):
+                return False, f"numeric comparison: {a_element}, {b_element}"
+
+        elif isinstance(a_element, str) and isinstance(b_element, str):
+            if normalize(a_element) != normalize(b_element):
+                return False, f"string comparison: {a_element}, {b_element}"
+            
+        else:
+            if a_element != b_element:
+                return False, f"other: {a_element}, {b_element}"
+
+    return True, f"list comparison: {a_element}, {b_element}"
 
 
 def evaluate_result(retrieved_data, golden_data):
@@ -168,22 +177,22 @@ def evaluate_result(retrieved_data, golden_data):
 
     # 2. Handle None
     if retrieved_data is None or golden_data is None:
-        return retrieved_data == golden_data, "handling none"
+        return retrieved_data == golden_data, f"handling none: {retrieved_data}, {golden_data}"
 
     # 3. Numbers (with tolerance)
     if isinstance(retrieved_data, (int, float)) or isinstance(golden_data, (int, float)):
-        return compare_numbers(retrieved_data, golden_data), "numeric comparison"
+        return compare_numbers(retrieved_data, golden_data), f"numeric comparison: {retrieved_data}, {golden_data}"
 
     # 4. Strings
     if isinstance(retrieved_data, str) and isinstance(golden_data, str):
-        return normalize(retrieved_data) == normalize(golden_data), "string comparison"
+        return normalize(retrieved_data) == normalize(golden_data), f"string comparison: {retrieved_data}, {golden_data}"
 
     # 5. Lists (e.g., SQL rows)
     if isinstance(retrieved_data, list) and isinstance(golden_data, list):
-        return compare_lists(retrieved_data, golden_data), "list comparison"
+        return compare_lists(retrieved_data, golden_data)
 
     # 7. Fallback - Can create FN
-    return False, "other"
+    return False, f"other: {retrieved_data}, {golden_data}"
 
 def save_record(case, model, sql, selected_tables, model_result, golden_result, efficiency_score, result, j):
     output_path = f"results_{models[model]}.jsonl"
@@ -223,7 +232,7 @@ def main():
                 # ---- Prompt 1 ----
                 prompt1 = build_prompt1(case)
                 messages1 = [{"role": "user", "content": prompt1}]
-                tables_output = call_model(messages1)
+                tables_output = call_model(messages1, model)
 
                 print("Selected Tables:")
                 print(tables_output)
@@ -235,7 +244,7 @@ def main():
                 # ---- Prompt 2 ----
                 prompt2 = build_prompt2(case, selected_tables)
                 messages2 = [{"role": "user", "content": prompt2}]
-                sql_output = call_model(messages2, max_tokens=1024)
+                sql_output = call_model(messages2, model, max_tokens=1024)
 
                 print("\nGenerated SQL:")
                 print(sql_output)
