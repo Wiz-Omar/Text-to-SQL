@@ -1,9 +1,6 @@
 import json
-import random
 import time
-from unittest import result
 from openai import OpenAI
-import boto3
 import sqlite3
 import re
 import os
@@ -13,6 +10,7 @@ import os
 # =========================
 region = "eu-north-1"
 api_key = ""
+attempts = 100
 
 models = {
     "qwen.qwen3-coder-30b-a3b-v1:0": "Qwen-3-Coder-30B",
@@ -53,48 +51,53 @@ def call_model(messages, model, max_tokens=512):
         temperature=0.0,
     )
 
-    usage = response.usage
-    prompt_tokens = usage.prompt_tokens
-    completion_tokens = usage.completion_tokens
-    total_tokens = usage.total_tokens
-
-    print(f"Prompt Tokens: {prompt_tokens}")
-    print(f"Completion Tokens: {completion_tokens}")
-    print(f"Total Tokens: {total_tokens}")
-
     return response.choices[0].message.content
 
+def get_columns(case):
+    table_names = []
+    schema_lines = []
+    db_id = case["db_id"]
+    db_path = f"./databases/{db_id}/{db_id}.sqlite"
+
+    for key, _ in case.items():
+        if key not in ["question", "difficulty", "SQL", "evidence", "question_id", "db_id"]:
+            table_name = key
+            table_names.append(table_name)
+            conn = sqlite3.connect(db_path)
+            cur = conn.cursor()
+            cur.execute(f'PRAGMA table_info("{table_name}")')
+            cols = [row[1] for row in cur.fetchall()]
+            conn.close()
+            schema_lines.append(f"{table_name}({', '.join(cols)})")
+    return table_names, "\n".join(schema_lines)
 
 # =========================
 # Prompt 1
 # =========================
-def build_prompt1(case):
-    schema_lines = []
-    for key, value in case.items():
-        if key not in ["question", "difficulty", "SQL", "evidence", "question_id", "db_id"]:
-            table_name = key
-            # extract column names roughly
-            cols = []
-            for line in value.split("\n"):
-                line = line.strip()
-                if line.startswith('"'):
-                    col = line.split('"')[1]
-                    cols.append(col)
-            schema_lines.append(f"{table_name}({', '.join(cols)})")
-
-    schema_text = "\n".join(schema_lines)
-
+def build_prompt1(question, allowed_tables, schema_text):
     return f"""
-You are a natural-language-to-SQL schema selector.
+You are a schema selection assistant for text-to-SQL.
 
-Given the database schema below and the natural language question, identify the smallest set of tables that are likely needed to answer the question. Include any join/bridge tables that may be needed. Be conservative: if a table might be relevant, include it.
+Select the smallest set of tables needed to answer the question. Include JOIN table names if needed. If unsure, include the table name.
 
-Return only a comma-separated list of table names.
+Rules:
+- Output ONLY valid JSON.
+- Format: {{"tables": ["table1", "table2"]}}
+- Use ONLY table names from the allowed list.
+- Do NOT include explanations or extra text.
+- Do NOT include parentheses or anything besides the JSON.
 
-Natural Language Question:
-{case["question"]}
+Valid examples:
+{{"tables": ["students"]}}
+{{"tables": ["orders", "customers"]}}
 
-Database Schema:
+Allowed tables:
+{allowed_tables}
+
+Question:
+{question}
+
+Schema:
 {schema_text}
 """
 
@@ -102,6 +105,13 @@ def clean_sql(response_text):
     # Remove ```sql ... ``` or ``` ... ```
     cleaned = re.sub(r"```sql|```|```sqlite", "", response_text, flags=re.IGNORECASE)
     return cleaned.strip()
+
+def clean_json_tables(text):
+    try:
+        data = json.loads(text)
+        return data.get("tables", [])
+    except:
+        return []
 
 # =========================
 # Prompt 2
@@ -218,40 +228,30 @@ def save_record(case, model, sql, selected_tables, model_result, golden_result, 
 
     
 def main():
-    with open("sampled_cases.json", "r") as f:
+    with open("sampled_cases.json", "r", encoding="utf-8") as f:
         data = json.load(f)
 
     for model in models.keys():
 
         for i, case in enumerate(data):
-            for j in range(1):
-                print(f"\n====================")
-                print(f"CASE {i+1} ({case['difficulty']})")
-                print(f"QUESTION: {case['question']}\n")
+            if case["question_id"] not in [82, 799, 202]:
+                continue
+            print("Question ID:", case["question_id"])
+            tables, schemas = get_columns(case)
+            messages1 = [{"role": "user", "content": build_prompt1(case["question"], tables, schemas)}]
 
+            for j in range(attempts):
                 # ---- Prompt 1 ----
-                prompt1 = build_prompt1(case)
-                messages1 = [{"role": "user", "content": prompt1}]
                 tables_output = call_model(messages1, model)
 
-                print("Selected Tables:")
-                print(tables_output)
-
-                selected_tables = [t.strip() for t in tables_output.split(",")]
-
-                print(selected_tables)
+                selected_tables = clean_json_tables(tables_output)
 
                 # ---- Prompt 2 ----
-                prompt2 = build_prompt2(case, selected_tables)
-                messages2 = [{"role": "user", "content": prompt2}]
+                messages2 = [{"role": "user", "content": build_prompt2(case, selected_tables)}]
                 sql_output = call_model(messages2, model, max_tokens=1024)
-
-                print("\nGenerated SQL:")
-                print(sql_output)
 
                 sql = clean_sql(sql_output)
 
-                print("\nExecuting SQL...")
                 model_start = time.time()
                 try:
                     model_result = execute_sql(case["db_id"], sql)
@@ -288,7 +288,10 @@ def main():
                 else:
                     efficiency_score = None
                     save_record(case, model, sql, selected_tables, model_result, golden_result, efficiency_score, f"semantic - {message}", j)
-                
+
+
+if __name__ == "__main__":
+    main()
 
 """
 Answer object:
