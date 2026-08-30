@@ -1,0 +1,10 @@
+Query_complexity,Model,Success_rate
+simple,Qwen3_A3B, 0.52
+moderate,Qwen3_A3B,0.46
+challenging,Qwen3_A3B,0.44
+simple,Qwen3_A22B,0.51
+moderate,Qwen3_A22B,0.52
+challenging,Qwen3_A22B,0.46
+simple,Qwen3_A35B,0.51
+moderate,Qwen3_A35B,0.48
+challenging,Qwen3_A35B,0.38

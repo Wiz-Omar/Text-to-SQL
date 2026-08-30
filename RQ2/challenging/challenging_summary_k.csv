@@ -1,0 +1,4 @@
+Model,N,Correct,Incorrect,Success Rate,Mode
+Qwen-3-Coder-30B,100,46,54,0.46,Incorrect
+Qwen-3-235B,100,56,44,0.56,Correct
+Qwen-3-Coder-480B,100,40,60,0.4,Incorrect
