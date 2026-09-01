@@ -56,6 +56,21 @@ corresponding database and compared with the golden query result.
 -   **Accuracy alone is insufficient for evaluation.**
 -   **Semantic failures dominate for all models.**
 
+## Citation
+
+If you use this work, please cite the thesis:
+
+``` bibtex
+@mastersthesis{alizade_younes_2026_text_to_sql,
+  author  = {Alizade, Mojtaba and Younes, Omar},
+  title   = {Error and Reliability Analysis of Open-Source LLMs for Text-to-SQL Generation Across Query Complexities},
+  school  = {Chalmers University of Technology and University of Gothenburg},
+  year    = {2026},
+  address = {Gothenburg, Sweden},
+  url     = {https://hdl.handle.net/20.500.12380/311917}
+}
+```
+
 ## Acknowledgements
 
 Master's thesis in Computer Science and Engineering at **Chalmers
